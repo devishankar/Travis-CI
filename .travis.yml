@@ -1,0 +1,53 @@
+sudo: true
+
+language: android
+jdk: oraclejdk8
+
+android:
+  components:
+    - tools
+    - platform-tools
+    - tools
+    - build-tools-25.0.1
+    - android-25
+    - extra-android-m2repository
+
+before_script:
+  - export SKIP_OKBUCK=true
+  - mkdir -p $ANDROID_HOME/licenses
+  - echo $android_sdk_license > $ANDROID_HOME/licenses/android-sdk-license
+  - echo $android_sdk_preview_license > $ANDROID_HOME/licenses/android-sdk-preview-license
+  - echo no | android create avd --force -n test -t android-18 --abi armeabi-v7a
+  - emulator -avd test -no-audio -no-window &
+
+script:
+  - SKIP_OKBUCK= ./buckw --version
+  - ./buckw targets --type android_binary java_test groovy_test robolectric_test | xargs ./buckw build
+  - ./buckw targets --type genrule | grep -v lintErrorLibrary | xargs ./buckw build
+  - ./buckw build //libraries/lintErrorLibrary:lint_debug;
+    if [ $? -eq 0 ]; then
+      echo "Lint passed when it should have failed. Please revisit any changes you may have made to lint wiring.";
+      exit 1;
+    else
+      if grep -q 'id=\"DontUseSystemTime\"' 'buck-out/gen/libraries/lintErrorLibrary/lint_debug/lint_debug_out/lint-results.xml'; then
+        echo "Lint failed as expected.";
+      else
+        echo "Lint did not create the expected output. Please double check your changes to resolve.";
+        exit 1;
+      fi
+    fi
+  - ./buckw test --include unit
+  - android-wait-for-emulator
+  - adb shell input keyevent 82
+  - ./buckw test //app:instrumentation_demoDebug_test
+
+notifications:
+  email: false
+
+before_cache:
+  - rm -f $HOME/.gradle/caches/modules-2/modules-2.lock
+cache:
+  directories:
+    - buck-out/cache
+    - $HOME/.gradle/caches/modules-2/
+    - $HOME/.gradle/wrapper/
